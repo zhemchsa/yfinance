@@ -5,6 +5,7 @@ This project loads stock data from Yahoo Finance via `yfinance`, screens tickers
 ## 1. Project layout
 
 - `src/main.py` — main Python entry point
+- `src/__init__.py` — marks `src` as a Python package so modules can be imported cleanly
 - `run_yfinance.sh` — shell runner for Unix/macOS users
 - `requirements.txt` — Python dependencies
 - `docs/hybrid_research_portfolio.xlsx` — Excel workbook used for outputs and manual overrides
@@ -146,7 +147,51 @@ Yellow cells represent manual override inputs. You can type your own values ther
 ### Formula behavior
 The workbook is designed so that manual overrides take precedence over fetched values. If you do not override a value, the workbook keeps the latest yfinance value.
 
-## 8. Troubleshooting
+## 8. What `__init__.py` does
+
+`src/__init__.py` marks the `src` directory as a Python package.
+
+This allows imports such as:
+
+```python
+from src.portfolio import Portfolio
+```
+
+or:
+
+```python
+from src.main import main
+```
+
+Without `__init__.py`, the folder is just a normal directory. Adding it makes the project easier to extend as you add more files like:
+
+```text
+src/
+  __init__.py
+  portfolio.py
+  market_data.py
+  main.py
+```
+
+Then the code can be organized cleanly instead of keeping everything in one big script.
+
+## 9. Example package pattern
+
+If you create a file named `src/portfolio.py` with a class or function, you would import it like this:
+
+```python
+from src.portfolio import Portfolio
+```
+
+or:
+
+```python
+from src.portfolio import build_portfolio
+```
+
+This is the normal package import style in Python projects.
+
+## 10. Troubleshooting
 
 ### The workbook does not update
 Check that:
@@ -164,7 +209,7 @@ Some tickers may not be valid or may return incomplete data. The script usually 
 ### You see missing data
 Open the workbook and confirm the corresponding `Data Import` rows are populated. If a metric is blank, check the ticker symbol and verify that Yahoo Finance returns data for it.
 
-## 9. Recommended workflow
+## 11. Recommended workflow
 
 1. Open the workbook.
 2. Update the reusable ticker input cells in `Data Import`.
@@ -173,7 +218,7 @@ Open the workbook and confirm the corresponding `Data Import` rows are populated
 5. Review the metric rows and dashboard summary.
 6. Use the yellow override cells only for manual adjustments.
 
-## 10. Typical command sequence
+## 12. Typical command sequence
 
 ```bash
 cd /Users/zhemchsa/repos/yfinance

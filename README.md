@@ -5,10 +5,28 @@ This project uses Python and `yfinance` to collect stock data, screen tickers, a
 ## Project structure
 
 - `src/main.py` — main script that loads tickers, fetches data, and writes workbook values
+- `src/__init__.py` — marks the `src` folder as a Python package
 - `run_yfinance.sh` — macOS/Linux runner script
 - `requirements.txt` — project dependencies
 - `docs/hybrid_research_portfolio.xlsx` — Excel workbook used for data review and manual overrides
 - `INSTRUCTIONS.md` — detailed execution notes
+
+Example package layout:
+
+```text
+src/
+  __init__.py
+  main.py
+  portfolio.py
+  market_data.py
+```
+
+Then imports look like:
+
+```python
+from src.portfolio import Portfolio
+from src.market_data import fetch_ticker_data
+```
 
 ## Prerequisites
 
