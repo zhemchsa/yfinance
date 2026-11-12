@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import math
 import os
 import sys
 from datetime import datetime, timezone
@@ -13,10 +14,11 @@ from openpyxl import load_workbook
 
 
 DEFAULT_TICKERS = [
-    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'JPM', 'WMT', 'INTC', 'CVX',
-    'GE', 'HON', 'MMM', 'EMR', 'DHR', 'ETN', 'ROK', 'PH', 'ITW', 'IR', 'XYL', 'AOS',
-    'GWW', 'JCI', 'PNR', 'SWK', 'TT', 'ALC', 'AME', 'AVY'
-]
+    'GE', 'TSLA', 'PLTR', 'AMZN', 'HOOD', 'NVDA',
+    'QQQ', 'VOO', 'IBIT', 'TEM', 'CINF', 'FETH',
+    'BITX', 'BMNR', 'SPCX', 'AMD']
+MAX_TICKERS = 30
+TICKER_INPUT_COLUMNS = tuple(2 + (2 * index) for index in range(MAX_TICKERS))
 
 METRICS = [
     'trailingPE',
@@ -39,6 +41,7 @@ DATA_IMPORT_METRICS = [
     'Cash and equivalents',
     'Total debt',
     'Beta',
+    'Trailing P/E',
 ]
 
 
@@ -125,16 +128,48 @@ def get_workbook_tickers():
     try:
         sheet = workbook['Data Import']
         values = []
-        for column in (2, 4, 6, 8):
+        for column in TICKER_INPUT_COLUMNS:
             value = sheet.cell(row=23, column=column).value
             if value is None:
                 continue
             text = str(value).strip()
             if text and text not in {'None', 'Peer 1', 'Peer 2', 'Peer 3'}:
                 values.append(text)
-        return values
+        return values[:MAX_TICKERS]
     finally:
         workbook.close()
+
+
+def get_sector_average_pe(sector_name):
+    if not isinstance(sector_name, str) or not sector_name.strip():
+        return None
+
+    normalized_name = sector_name.strip().casefold()
+    if normalized_name in {'n/a', 'none'}:
+        return None
+
+    sector_key = normalized_name.replace(' ', '-')
+    top_companies = yf.Sector(sector_key).top_companies
+    if top_companies is None:
+        return None
+
+    total_weight = 0.0
+    weighted_earnings_yield = 0.0
+    for symbol, company in top_companies.iterrows():
+        weight = company['market weight']
+        if not isinstance(weight, (int, float)) or not math.isfinite(weight) or weight <= 0:
+            continue
+
+        trailing_pe = yf.Ticker(symbol).info.get('trailingPE')
+        if not isinstance(trailing_pe, (int, float)) or not math.isfinite(trailing_pe) or trailing_pe <= 0:
+            continue
+
+        total_weight += weight
+        weighted_earnings_yield += weight / trailing_pe
+
+    if weighted_earnings_yield == 0:
+        return None
+    return total_weight / weighted_earnings_yield
 
 
 def refresh_workbook_data(tickers):
@@ -148,14 +183,27 @@ def refresh_workbook_data(tickers):
 
     sheet = workbook['Data Import']
     timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    sheet['G6'] = 'Sector'
+    sheet['H6'] = 'Sector P/E (Top 50)'
+    sheet['I6'] = 'P/E vs Sector (%)'
+    sheet.column_dimensions['I'].width = 20
 
-    for idx, ticker in enumerate(tickers[:4]):
-        column_map = {0: 2, 1: 4, 2: 6, 3: 8}
-        cell = sheet.cell(row=23, column=column_map[idx])
-        cell.value = ticker
+    tickers = tickers[:MAX_TICKERS]
+    for column in TICKER_INPUT_COLUMNS:
+        sheet.cell(row=23, column=column).value = None
 
-    for idx, ticker in enumerate(tickers[:4]):
+    for idx, ticker in enumerate(tickers):
+        sheet.cell(row=23, column=TICKER_INPUT_COLUMNS[idx]).value = ticker
+
+    sector_pe_cache = {}
+    for idx, ticker in enumerate(tickers):
         info = yf.Ticker(ticker).info
+        sector_name = info.get('sector')
+        sector_label = sector_name if isinstance(sector_name, str) and sector_name.strip() else 'N/A'
+        sector_key = sector_label.strip().casefold().replace(' ', '-')
+        if sector_label != 'N/A' and sector_key not in sector_pe_cache:
+            sector_pe_cache[sector_key] = get_sector_average_pe(sector_label)
+        sector_pe = sector_pe_cache.get(sector_key)
         row_start = 7 + (idx * 19)
 
         metric_map = {
@@ -169,6 +217,7 @@ def refresh_workbook_data(tickers):
             'Cash and equivalents': info.get('totalCash') or info.get('totalCash') or info.get('cash'),
             'Total debt': info.get('totalDebt'),
             'Beta': info.get('beta'),
+            'Trailing P/E': info.get('trailingPE'),
         }
 
         for metric_index, metric_name in enumerate(DATA_IMPORT_METRICS):
@@ -179,6 +228,19 @@ def refresh_workbook_data(tickers):
             sheet.cell(row=row, column=4, value=None)
             sheet.cell(row=row, column=5, value=f'=IF(D{row}="",C{row},D{row})')
             sheet.cell(row=row, column=6, value=timestamp)
+            for column in (7, 8, 9):
+                sheet.cell(row=row, column=column).value = None
+            if metric_name == 'Trailing P/E':
+                sheet.cell(row=row, column=3).number_format = '0.00'
+                sheet.cell(row=row, column=7, value=sector_label)
+                sheet.cell(row=row, column=8, value=sector_pe)
+                sheet.cell(
+                    row=row,
+                    column=9,
+                    value=f'=IF(AND(ISNUMBER(E{row}),E{row}>0,ISNUMBER(H{row}),H{row}>0),E{row}/H{row}-1,"")',
+                )
+                sheet.cell(row=row, column=8).number_format = '0.00'
+                sheet.cell(row=row, column=9).number_format = '0.0%'
 
     workbook.save(WORKBOOK_PATH)
     workbook.close()
@@ -295,7 +357,7 @@ def refresh_stock_metrics(tickers):
 
 def main():
     args = sys.argv[1:]
-    tickers = get_workbook_tickers() or DEFAULT_TICKERS
+    tickers = (get_workbook_tickers() or DEFAULT_TICKERS)[:MAX_TICKERS]
 
     if '--screen-only' in args:
         screen_value_candidates(tickers)

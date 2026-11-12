@@ -126,7 +126,7 @@ If the manual override cell is blank, the workbook uses the fetched value. If th
 
 ## 5. What the script updates
 
-The script reads the ticker values from the workbook and then writes refreshed values around the `Data Import` area for each ticker and metric. This keeps the workbook structure intact while refreshing the data.
+The script reads up to 30 ticker inputs from row 23 of the `Data Import` sheet, using every other column from B23 through BH23. It writes refreshed values in the `Data Import` area for each ticker and metric, including a weighted P/E estimate from Yahoo's top 50 companies in each ticker's sector and the stock's premium or discount to that estimate. See the workbook's `PE Guide` tab for definitions and an example.
 
 ## 6. Interpretation of results
 

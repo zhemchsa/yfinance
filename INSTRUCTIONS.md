@@ -85,19 +85,15 @@ If you are using Excel for Mac, Excel for Web, or another spreadsheet tool, open
 The script updates the workbook in the `Data Import` sheet.
 
 ### Ticker inputs
-The workbook uses reusable ticker cells in the `Data Import` section:
+The workbook supports up to 30 reusable ticker inputs in row 23 of the `Data Import` sheet. Enter tickers in every other column, starting at B23 and ending at BH23 (B23, D23, F23, ... BH23). The columns between them are reserved for peer labels.
 
-- B23 = ticker 1
-- D23 = ticker 2
-- F23 = ticker 3
-- H23 = ticker 4
-
-These are the primary inputs the script reads from and writes to.
+The script reads these ticker cells and refreshes up to 30 tickers.
 
 ### Output rows
 The script writes rows beginning at the `Data Import` section for each ticker and metric such as:
 
 - Share price
+- Trailing P/E
 - Market capitalization
 - Shares outstanding
 - Revenue
@@ -108,7 +104,11 @@ The script writes rows beginning at the `Data Import` section for each ticker an
 - Total debt
 - Beta
 
-The values are written in the `C` column (Yahoo value) and the formula in the `E` column uses the manual override logic:
+For the Trailing P/E row, columns G-I show the ticker's sector, a weighted P/E benchmark based on Yahoo's top 50 sector companies, and the stock's premium or discount to that benchmark. The comparison is `(stock P/E / sector P/E) - 1`. Companies without a positive trailing P/E are excluded from the benchmark. This is a top-50 estimate, not a P/E calculated from every company in the sector. ETFs or funds without a Yahoo sector assignment may show `N/A` and have no sector comparison.
+
+See the `PE Guide` workbook tab for a column-by-column explanation and an example.
+
+The metric values are written in the `C` column (Yahoo value) and the formula in the `E` column uses the manual override logic:
 
 ```excel
 =IF(D7="",C7,D7)
