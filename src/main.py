@@ -16,7 +16,7 @@ from openpyxl import load_workbook
 DEFAULT_TICKERS = [
     'GE', 'TSLA', 'PLTR', 'AMZN', 'HOOD', 'NVDA',
     'QQQ', 'VOO', 'IBIT', 'TEM', 'CINF', 'FETH',
-    'BITX', 'BMNR', 'SPCX', 'AMD']
+    'BITX', 'BMNR', 'SPCX', 'AMD', 'KMB', 'NSRGY', 'MKC']
 MAX_TICKERS = 30
 TICKER_INPUT_COLUMNS = tuple(2 + (2 * index) for index in range(MAX_TICKERS))
 
@@ -45,28 +45,107 @@ DATA_IMPORT_METRICS = [
 ]
 
 
-def screen_value_candidates(tickers):
-    print(f"{'Ticker':<6} {'P/E':>8} {'P/B':>8} {'PEG':>8}")
-    print("-" * 36)
+def calculate_moving_averages(history):
+    if history is None or 'Close' not in history:
+        return None, None
 
-    matches = []
+    closing_prices = history['Close'].dropna()
+    if len(closing_prices) < 50:
+        return None, None
+
+    fifty_day_average = float(closing_prices.tail(50).mean())
+    two_hundred_day_average = (
+        float(closing_prices.tail(200).mean()) if len(closing_prices) >= 200 else None
+    )
+    if not math.isfinite(fifty_day_average) or fifty_day_average <= 0:
+        fifty_day_average = None
+    if (
+        two_hundred_day_average is not None
+        and (not math.isfinite(two_hundred_day_average) or two_hundred_day_average <= 0)
+    ):
+        two_hundred_day_average = None
+    return fifty_day_average, two_hundred_day_average
+
+
+def get_buy_price_and_recommendation(
+    current_price,
+    analyst_target,
+    fifty_day_average,
+    two_hundred_day_average,
+):
+    values = (
+        current_price,
+        analyst_target,
+        fifty_day_average,
+        two_hundred_day_average,
+    )
+    if any(
+        not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0
+        for value in values
+    ):
+        return None, 'Insufficient data'
+
+    buy_price = min(fifty_day_average, analyst_target)
+    if current_price < two_hundred_day_average:
+        recommendation = 'Wait - below 200-day MA'
+    elif current_price > buy_price:
+        recommendation = 'Wait for buy price'
+    else:
+        recommendation = 'Consider buy'
+    return buy_price, recommendation
+
+
+def format_price(value):
+    if not isinstance(value, (int, float)) or not math.isfinite(value):
+        return 'N/A'
+    return f'${value:,.2f}'
+
+
+def format_multiple(value):
+    if not isinstance(value, (int, float)) or not math.isfinite(value):
+        return 'N/A'
+    return f'{value:.2f}x'
+
+
+def screen_value_candidates(tickers, sector_pe_cache=None):
+    print(
+        f"{'Ticker':<6} {'P/E':>8} {'Sector P/E':>12} "
+        f"{'P/B':>8} {'PEG':>8} {'Result':>10}"
+    )
+    print("-" * 60)
+
+    sector_pe_cache = {} if sector_pe_cache is None else sector_pe_cache
+    has_matches = False
     for ticker in tickers:
         stock = yf.Ticker(ticker)
         info = stock.info
         pe_ratio = info.get('trailingPE')
         pb_ratio = info.get('priceToBook')
         peg_ratio = info.get('pegRatio')
-
-        if pe_ratio is not None and pb_ratio is not None and peg_ratio is not None:
-            if pe_ratio < 15 and pb_ratio < 1.5 and peg_ratio < 1:
-                matches.append((ticker, pe_ratio, pb_ratio, peg_ratio))
-
-    if not matches:
+        is_match = (
+            all(
+                isinstance(value, (int, float)) and math.isfinite(value)
+                for value in (pe_ratio, pb_ratio, peg_ratio)
+            )
+            and pe_ratio < 15
+            and pb_ratio < 1.5
+            and peg_ratio < 1
+        )
+        has_matches = has_matches or is_match
+        sector_pe = get_cached_sector_average_pe(info.get('sector'), sector_pe_cache)
+        print(
+            f"{ticker:<6} {format_number(pe_ratio):>8} {format_multiple(sector_pe):>12} "
+            f"{format_number(pb_ratio):>8} {format_number(peg_ratio):>8} "
+            f"{'MATCH' if is_match else 'NO MATCH':>10}"
+        )
+    if not has_matches:
         print("No tickers matched the screen.")
-        return
 
-    for ticker, pe_ratio, pb_ratio, peg_ratio in matches:
-        print(f"{ticker:<6} {pe_ratio:>8.2f} {pb_ratio:>8.2f} {peg_ratio:>8.2f}")
+
+def format_number(value):
+    if not isinstance(value, (int, float)) or not math.isfinite(value):
+        return 'N/A'
+    return f'{value:.2f}'
 
 
 def print_stock_metrics_table(tickers):
@@ -172,7 +251,17 @@ def get_sector_average_pe(sector_name):
     return total_weight / weighted_earnings_yield
 
 
-def refresh_workbook_data(tickers):
+def get_cached_sector_average_pe(sector_name, sector_pe_cache):
+    if not isinstance(sector_name, str) or not sector_name.strip():
+        return None
+
+    sector_key = sector_name.strip().casefold().replace(' ', '-')
+    if sector_key not in sector_pe_cache:
+        sector_pe_cache[sector_key] = get_sector_average_pe(sector_name)
+    return sector_pe_cache[sector_key]
+
+
+def refresh_workbook_data(tickers, sector_pe_cache=None):
     if not WORKBOOK_PATH.exists():
         return
 
@@ -186,6 +275,11 @@ def refresh_workbook_data(tickers):
     sheet['G6'] = 'Sector'
     sheet['H6'] = 'Sector P/E (Top 50)'
     sheet['I6'] = 'P/E vs Sector (%)'
+    sheet['J6'] = '50-day MA'
+    sheet['K6'] = '200-day MA'
+    sheet['L6'] = 'Buy price'
+    sheet['M6'] = 'Buy recommendation'
+    sheet['N6'] = 'Analyst target'
     sheet.column_dimensions['I'].width = 20
 
     tickers = tickers[:MAX_TICKERS]
@@ -195,15 +289,38 @@ def refresh_workbook_data(tickers):
     for idx, ticker in enumerate(tickers):
         sheet.cell(row=23, column=TICKER_INPUT_COLUMNS[idx]).value = ticker
 
-    sector_pe_cache = {}
+    print('\nTechnical Buy Analysis:')
+    print(
+        f"{'Ticker':<8} {'Price':>12} {'Analyst target':>15} {'50-day MA':>12} "
+        f"{'200-day MA':>12} {'Buy price':>12} "
+        f"{'Recommendation':<30}"
+    )
+    print('-' * 106)
+
+    sector_pe_cache = {} if sector_pe_cache is None else sector_pe_cache
     for idx, ticker in enumerate(tickers):
-        info = yf.Ticker(ticker).info
+        stock = yf.Ticker(ticker)
+        info = stock.info
         sector_name = info.get('sector')
         sector_label = sector_name if isinstance(sector_name, str) and sector_name.strip() else 'N/A'
-        sector_key = sector_label.strip().casefold().replace(' ', '-')
-        if sector_label != 'N/A' and sector_key not in sector_pe_cache:
-            sector_pe_cache[sector_key] = get_sector_average_pe(sector_label)
-        sector_pe = sector_pe_cache.get(sector_key)
+        sector_pe = get_cached_sector_average_pe(sector_label, sector_pe_cache)
+        analyst_target = info.get('targetMeanPrice')
+        fifty_day_average, two_hundred_day_average = calculate_moving_averages(
+            stock.history(period='1y', auto_adjust=False)
+        )
+        buy_price, buy_recommendation = get_buy_price_and_recommendation(
+            info.get('currentPrice'),
+            analyst_target,
+            fifty_day_average,
+            two_hundred_day_average,
+        )
+        print(
+            f"{ticker:<8} {format_price(info.get('currentPrice')):>12} "
+            f"{format_price(analyst_target):>15} "
+            f"{format_price(fifty_day_average):>12} "
+            f"{format_price(two_hundred_day_average):>12} "
+            f"{format_price(buy_price):>12} {buy_recommendation:<30}"
+        )
         row_start = 7 + (idx * 19)
 
         metric_map = {
@@ -228,7 +345,7 @@ def refresh_workbook_data(tickers):
             sheet.cell(row=row, column=4, value=None)
             sheet.cell(row=row, column=5, value=f'=IF(D{row}="",C{row},D{row})')
             sheet.cell(row=row, column=6, value=timestamp)
-            for column in (7, 8, 9):
+            for column in range(7, 15):
                 sheet.cell(row=row, column=column).value = None
             if metric_name == 'Trailing P/E':
                 sheet.cell(row=row, column=3).number_format = '0.00'
@@ -241,6 +358,15 @@ def refresh_workbook_data(tickers):
                 )
                 sheet.cell(row=row, column=8).number_format = '0.00'
                 sheet.cell(row=row, column=9).number_format = '0.0%'
+                sheet.cell(row=row, column=10, value=fifty_day_average)
+                sheet.cell(row=row, column=11, value=two_hundred_day_average)
+                sheet.cell(row=row, column=12, value=buy_price)
+                sheet.cell(row=row, column=13, value=buy_recommendation)
+                sheet.cell(row=row, column=14, value=analyst_target)
+                sheet.cell(row=row, column=10).number_format = '$#,##0.00'
+                sheet.cell(row=row, column=11).number_format = '$#,##0.00'
+                sheet.cell(row=row, column=12).number_format = '$#,##0.00'
+                sheet.cell(row=row, column=14).number_format = '$#,##0.00'
 
     workbook.save(WORKBOOK_PATH)
     workbook.close()
@@ -358,19 +484,20 @@ def refresh_stock_metrics(tickers):
 def main():
     args = sys.argv[1:]
     tickers = (get_workbook_tickers() or DEFAULT_TICKERS)[:MAX_TICKERS]
+    sector_pe_cache = {}
 
     if '--screen-only' in args:
-        screen_value_candidates(tickers)
-        refresh_workbook_data(tickers)
+        screen_value_candidates(tickers, sector_pe_cache)
+        refresh_workbook_data(tickers, sector_pe_cache)
         return
     if '--db-only' in args:
         refresh_stock_metrics(tickers)
-        refresh_workbook_data(tickers)
+        refresh_workbook_data(tickers, sector_pe_cache)
         return
 
-    screen_value_candidates(tickers)
+    screen_value_candidates(tickers, sector_pe_cache)
     print_stock_metrics_table(tickers)
-    refresh_workbook_data(tickers)
+    refresh_workbook_data(tickers, sector_pe_cache)
     refresh_stock_metrics(tickers)
 
 

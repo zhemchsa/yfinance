@@ -108,6 +108,10 @@ For the Trailing P/E row, columns G-I show the ticker's sector, a weighted P/E b
 
 See the `PE Guide` workbook tab for a column-by-column explanation and an example.
 
+For each ticker's Trailing P/E row, columns J-N show the 50-day and 200-day moving averages, a buy-price threshold, a screening recommendation, and Yahoo Finance's mean analyst target. The target is used as an analyst-estimate fair-value proxy, not intrinsic value. The buy-price threshold is the lower of the analyst target and 50-day average. `Consider buy` requires the current price to be at or below that threshold and at or above the 200-day average; otherwise the recommendation explains why to wait. Missing or non-positive inputs produce `Insufficient data`. This is a mechanical screen, not personalized investment advice or a guarantee of future performance.
+
+The screen-results table lists every input ticker, marks whether it matches the screen, and places sector P/E immediately after stock P/E. During a workbook refresh, the terminal also prints a `Technical Buy Analysis` table with current price, analyst target, both moving averages, buy price, and recommendation.
+
 The metric values are written in the `C` column (Yahoo value) and the formula in the `E` column uses the manual override logic:
 
 ```excel

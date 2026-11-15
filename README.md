@@ -128,6 +128,10 @@ If the manual override cell is blank, the workbook uses the fetched value. If th
 
 The script reads up to 30 ticker inputs from row 23 of the `Data Import` sheet, using every other column from B23 through BH23. It writes refreshed values in the `Data Import` area for each ticker and metric, including a weighted P/E estimate from Yahoo's top 50 companies in each ticker's sector and the stock's premium or discount to that estimate. See the workbook's `PE Guide` tab for definitions and an example.
 
+For each ticker's Trailing P/E row, columns J-N show the 50-day and 200-day moving averages, a buy-price threshold, a screening recommendation, and Yahoo Finance's mean analyst target. The target is used as an analyst-estimate fair-value proxy, not intrinsic value. The buy-price threshold is the lower of the analyst target and 50-day average. `Consider buy` requires the current price to be at or below that threshold and at or above the 200-day average; otherwise the recommendation explains why to wait. Missing or non-positive inputs produce `Insufficient data`. This is a mechanical screen, not personalized investment advice or a guarantee of future performance.
+
+The screen-results table lists every input ticker, marks whether it matches the screen, and places sector P/E immediately after stock P/E. During a workbook refresh, the terminal also prints a `Technical Buy Analysis` table with current price, analyst target, both moving averages, buy price, and recommendation.
+
 ## 6. Interpretation of results
 
 - Use the `Dashboard` tab to review the portfolio summary and case-level output.
